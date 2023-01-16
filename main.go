@@ -8,7 +8,6 @@ import (
 	"github.com/mrxakerrus/netsdk/entity/dvr"
 )
 
-// TODO make clean architecture entity
 func main() {
 	// TODO create constructor
 	camera := dvr.DVR{IP: "10.195.2.25", SocketType: "tcp", Port: 34567, Login: "admin", Password: "tvmix333", HashPassword: "", Connection: nil, SessionID: "0x00000000", Count: 0, Mx: sync.Mutex{}}
@@ -22,7 +21,7 @@ func main() {
 	}
 
 	// Login struct
-	err, login := camera.Auth()
+	login, err := camera.Auth()
 	if err != nil {
 		log.Println(err)
 	}
@@ -33,7 +32,7 @@ func main() {
 	log.Println(login)
 
 	// SystemInfo
-	err, info := camera.GetSystemInfo()
+	info, err := camera.GetSystemInfo()
 	if err != nil {
 		log.Println(err)
 	}

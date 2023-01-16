@@ -3,19 +3,16 @@ package dvr
 import (
 	"bytes"
 	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/lunixbochs/struc"
+	utils "github.com/mrxakerrus/netsdk/utils"
 )
 
 type DVR struct {
@@ -193,11 +190,11 @@ func (dvr *DVR) GetSnapshot(channel int, path string) error {
 	if err != nil {
 		return err
 	}
-	err, data := dvr.PrepareSend(QCODES["OPSNAP"], snapMarshal)
+	data, err := dvr.PrepareSend(QCODES["OPSNAP"], snapMarshal)
 	if err != nil {
 		return err
 	}
-	err, buff := dvr.Send(data)
+	buff, err := dvr.Send(data)
 	if err != nil {
 		return err
 	}
@@ -209,90 +206,90 @@ func (dvr *DVR) GetSnapshot(channel int, path string) error {
 }
 
 // Get information by string code
-func (dvr *DVR) GetCode(code string) (error, string) {
+func (dvr *DVR) GetCode(code string) (string, error) {
 	info := Info{code, dvr.SessionID}
 	infoMarshal, err := json.Marshal(info)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
-	err, data := dvr.PrepareSend(QCODES[code], infoMarshal)
+	data, err := dvr.PrepareSend(QCODES[code], infoMarshal)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
-	err, buff := dvr.Send(data)
+	buff, err := dvr.Send(data)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
-	return nil, buff
+	return buff, nil
 }
 
 // TODO
-func (dvr *DVR) GetInfo() (error, Info) {
+func (dvr *DVR) GetInfo() (Info, error) {
 	info := Info{"General", dvr.SessionID}
 	infoMarshal, err := json.Marshal(info)
 	if err != nil {
-		return err, info
+		return info, err
 	}
-	err, data := dvr.PrepareSend(QCODES["General"], infoMarshal)
+	data, err := dvr.PrepareSend(QCODES["General"], infoMarshal)
 	if err != nil {
-		return err, info
+		return info, err
 	}
-	err, buff := dvr.Send(data)
+	buff, err := dvr.Send(data)
 	if err != nil {
-		return err, info
+		return info, err
 	}
 	log.Println(buff)
-	return nil, info
+	return info, err
 }
 
 // getSystemInfo return info camera
-func (dvr *DVR) GetSystemInfo() (error, SystemInfo) {
+func (dvr *DVR) GetSystemInfo() (SystemInfo, error) {
 	systeminfo := SystemInfo{}
 	info := Info{"SystemInfo", dvr.SessionID}
 	infoMarshal, err := json.Marshal(info)
 	if err != nil {
-		return err, systeminfo
+		return systeminfo, err
 	}
-	err, data := dvr.PrepareSend(QCODES["SystemInfo"], infoMarshal)
+	data, err := dvr.PrepareSend(QCODES["SystemInfo"], infoMarshal)
 	if err != nil {
-		return err, systeminfo
+		return systeminfo, err
 	}
-	err, buff := dvr.Send(data)
+	buff, err := dvr.Send(data)
 	if err != nil {
-		return err, systeminfo
+		return systeminfo, err
 	}
 
 	err = json.Unmarshal([]byte(buff), &systeminfo)
 	if err != nil {
-		return err, systeminfo
+		return systeminfo, err
 	}
-	return nil, systeminfo
+	return systeminfo, nil
 }
 
 // Auth
-func (dvr *DVR) Auth() (error, AuthStruct) {
+func (dvr *DVR) Auth() (AuthStruct, error) {
 	auth := AuthStruct{}
 	login := Login{"MD5", "DVRIP-Web", dvr.HashPassword, dvr.Login}
 	loginMarshal, err := json.Marshal(login)
 	if err != nil {
-		return err, auth
+		return auth, err
 	}
 
-	err, data := dvr.PrepareSend(1000, loginMarshal)
+	data, err := dvr.PrepareSend(1000, loginMarshal)
 	if err != nil {
-		return err, auth
+		return auth, err
 	}
-	err, buff := dvr.Send(data)
+	buff, err := dvr.Send(data)
 	if err != nil {
-		return err, auth
+		return auth, err
 	}
 
 	err = json.Unmarshal([]byte(buff), &auth)
 	if err != nil {
-		return err, auth
+		return auth, err
 	}
 	dvr.SessionID = auth.SessionID
-	return nil, auth
+	return auth, nil
 }
 
 // TODO concat
@@ -320,51 +317,55 @@ func (dvr *DVR) PasswordHash() {
 		} else {
 			n += 0x30
 		}
-		passwordHash += string(n)
+		passwordHash += string(rune(n))
 	}
 	dvr.HashPassword = passwordHash
 }
 
-func (dvr *DVR) PrepareSend(code int, json []byte) (error, *HeaderMessage) {
-	output, err := strconv.ParseInt(HexaNumberToInteger(dvr.SessionID), 16, 64)
+func (dvr *DVR) PrepareSend(code int, json []byte) (*HeaderMessage, error) {
+	output, err := strconv.ParseInt(utils.HexaNumberToInteger(dvr.SessionID), 16, 64)
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 	head := &Header{255, 0, 0, 0, int(output), dvr.Count, 0, 0, code, len(json) + 2}
 	data := &HeaderMessage{head, json}
 	dvr.Count++
-	return nil, data
+	return data, nil
 }
 
-func (dvr *DVR) Send(header *HeaderMessage) (error, string) {
+func (dvr *DVR) Send(header *HeaderMessage) (string, error) {
 	dvr.Mx.Lock()
 	var buf bytes.Buffer
 	end := []byte{0x0a, 0x00}
 	err := struc.Pack(&buf, &header.Head)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	// log.Println("\n" + hex.Dump(buf.Bytes()))
 	buf.Write(header.Message)
 	buf.Write(end)
 
 	dvr.Connection.Write(buf.Bytes())
-	//wft todo dont work without this
-	time.Sleep(1)
 	headerMessage := make([]byte, 20)
 	n, err := dvr.Connection.Read(headerMessage)
+	if err != nil {
+		return "", err
+	}
 	if n < 20 {
-		return errors.New("Not enought headers length"), ""
+		return "", errors.New("not enought headers length")
 	}
 	// get length package
-	err, message := dvr.parse(*bytes.NewBuffer(headerMessage))
+	message, err := dvr.Parse(*bytes.NewBuffer(headerMessage))
+	if err != nil {
+		return "", err
+	}
 	totalLen := 0
 	content := make([]byte, 0, message.Len)
 	tmp := make([]byte, 256)
 	for {
 		n, err = dvr.Connection.Read(tmp)
 		if err != nil {
-			return err, ""
+			return "", err
 		}
 		totalLen += n
 		content = append(content, tmp[:n]...)
@@ -374,47 +375,15 @@ func (dvr *DVR) Send(header *HeaderMessage) (error, string) {
 	}
 	// log.Println(hex.Dump(content[:len(content)-2]))
 	dvr.Mx.Unlock()
-	return nil, string(content[:len(content)-2])
+	return string(content[:len(content)-2]), nil
 }
 
-func (dvr *DVR) parse(buf bytes.Buffer) (error, Header) {
+func (dvr *DVR) Parse(buf bytes.Buffer) (Header, error) {
 	// log.Println("\n" + hex.Dump(buf.Bytes()))
 	head := &Header{}
 	err := struc.Unpack(&buf, head)
 	if err != nil {
-		return err, *head
+		return *head, err
 	}
-	return nil, *head
-}
-
-// utils
-func HexaNumberToInteger(hexaString string) string {
-	numberStr := strings.Replace(hexaString, "0x", "", -1)
-	numberStr = strings.Replace(numberStr, "0X", "", -1)
-	return numberStr
-}
-
-func Convertip(hexip string) (error, string) {
-	if len(hexip) < 10 {
-		return errors.New("minimum size 10"), ""
-	}
-	hex, err := hex.DecodeString(HexaNumberToInteger(hexip))
-	if err != nil {
-		return err, ""
-	}
-	ip := fmt.Sprintf("%d.%d.%d.%d", int(hex[3]), int(hex[2]), int(hex[1]), int(hex[0]))
-	return nil, ip
-}
-
-func Reverse(s string) string {
-	runes := []rune(s)
-	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-	return string(runes)
-}
-
-func Zfill(s string, pad string, overall int) string {
-	l := overall - len(s)
-	return strings.Repeat(pad, l) + s
+	return *head, nil
 }
